@@ -5,6 +5,8 @@ from core.models import TestModel
 
 
 async def process_data_batch(batch_data: list[dict], semaphore: asyncio.Semaphore) -> None:
+    print("--------- Processing data batch ----------")
+
     bulk_update_instances = []
     bulk_create_instances = []
 
@@ -17,32 +19,33 @@ async def process_data_batch(batch_data: list[dict], semaphore: asyncio.Semaphor
 
         non_existing_records_id = batch_data_id_set - existing_records_id_set
 
-        for record in existing_records:
-            record_update_data = list(filter(lambda item: item["id"] == record.id, batch_data))
+    for record in existing_records:
+        record_update_data = list(filter(lambda item: item["id"] == record.id, batch_data))
 
-            if record_update_data:
-                record_update_data = record_update_data[0]
-                record.test_field_1 = record_update_data["test_field_1"]
-                record.test_field_2 = record_update_data["test_field_2"]
-                record.test_field_3 = record_update_data["test_field_3"]
-                record.test_field_4 = record_update_data["test_field_4"]
-                bulk_update_instances.append(record)
+        if record_update_data:
+            record_update_data = record_update_data[0]
+            record.test_field_1 = record_update_data["test_field_1"]
+            record.test_field_2 = record_update_data["test_field_2"]
+            record.test_field_3 = record_update_data["test_field_3"]
+            record.test_field_4 = record_update_data["test_field_4"]
+            bulk_update_instances.append(record)
 
-        for record_id in non_existing_records_id:
-            create_record_data = list(filter(lambda item: item["id"] == record_id, batch_data))
+    for record_id in non_existing_records_id:
+        create_record_data = list(filter(lambda item: item["id"] == record_id, batch_data))
 
-            if create_record_data:
-                create_record_data = create_record_data[0]
-                bulk_create_instances.append(
-                    TestModel(
-                        id=create_record_data["id"],
-                        test_field_1=create_record_data["test_field_1"],
-                        test_field_2=create_record_data["test_field_2"],
-                        test_field_3=create_record_data["test_field_3"],
-                        test_field_4=create_record_data["test_field_4"],
-                    )
+        if create_record_data:
+            create_record_data = create_record_data[0]
+            bulk_create_instances.append(
+                TestModel(
+                    id=create_record_data["id"],
+                    test_field_1=create_record_data["test_field_1"],
+                    test_field_2=create_record_data["test_field_2"],
+                    test_field_3=create_record_data["test_field_3"],
+                    test_field_4=create_record_data["test_field_4"],
                 )
+            )
 
+    async with semaphore:
         if bulk_create_instances:
             await TestModel.bulk_create(bulk_create_instances)
 
@@ -51,6 +54,8 @@ async def process_data_batch(batch_data: list[dict], semaphore: asyncio.Semaphor
                 bulk_update_instances,
                 fields=["test_field_1", "test_field_2", "test_field_3", "test_field_4"],
             )
+
+        print("--------- End of processing data batch ----------")
 
 
 async def process_data(data: list[dict]) -> None:
