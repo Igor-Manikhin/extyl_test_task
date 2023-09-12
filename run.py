@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from tortoise import run_async
 
@@ -14,10 +15,12 @@ async def main():
 
     while True:
         print("Start processing json data list")
-
+        start_time = time.perf_counter()
         json_list = generate_json_list(list_size=settings.LIST_DATA_COUNT)
         await process_data(json_list)
-        print(f"Processing json data list is completed. Sleep on {SLEEP_TIME_SECONDS} seconds")
+
+        print(f"Processing json data list is completed. Elapsed time: {time.perf_counter()  - start_time} seconds")
+        print(f"---------- Sleep on {SLEEP_TIME_SECONDS} seconds ----------")
         await asyncio.sleep(SLEEP_TIME_SECONDS)
 
 run_async(main())
