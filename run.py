@@ -1,5 +1,7 @@
 import asyncio
 
+from tortoise import run_async
+
 from core import settings
 from core.init_db import init
 from core.processing import process_data
@@ -18,4 +20,4 @@ async def main():
         print(f"Processing json data list is completed. Sleep on {SLEEP_TIME_SECONDS} seconds")
         await asyncio.sleep(SLEEP_TIME_SECONDS)
 
-asyncio.run(main())
+run_async(main())
