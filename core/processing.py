@@ -1,25 +1,12 @@
 import asyncio
 
+from tortoise.transactions import in_transaction
+
 from core import settings
 from core.models import TestModel
 
 
-async def bulk_create(bulk_create_instances: list[TestModel]):
-    await TestModel.bulk_create(
-        bulk_create_instances,
-        batch_size=settings.CREATE_RECORDS_BATCH_SIZE,
-    )
-
-
-async def bulk_update(bulk_update_instances: list[TestModel]):
-    await TestModel.bulk_update(
-        bulk_update_instances,
-        fields=["test_field_1", "test_field_2", "test_field_3", "test_field_4"],
-        batch_size=settings.UPDATE_RECORDS_BATCH_SIZE,
-    )
-
-
-async def process_data_batch(batch_data: list[dict]) -> None:
+async def process_data_batch(batch_data: list[dict]) -> (list[TestModel], list[TestModel]):
     bulk_update_instances = []
     bulk_create_instances = []
     records_data = {item["id"]: item for item in batch_data}
@@ -39,19 +26,29 @@ async def process_data_batch(batch_data: list[dict]) -> None:
         if create_record_data := records_data.get(record_id):
             bulk_create_instances.append(TestModel(**create_record_data))
 
-    if bulk_create_instances:
-        await asyncio.create_task(bulk_create(bulk_create_instances))
+    async with in_transaction() as connection:
+        if bulk_create_instances:
+            await TestModel.bulk_create(
+                bulk_create_instances,
+                batch_size=settings.CREATE_RECORDS_BATCH_SIZE,
+                using_db=connection,
+            )
 
-    if bulk_update_instances:
-        asyncio.create_task(bulk_update(bulk_update_instances))
+        if bulk_update_instances:
+            await TestModel.bulk_update(
+                bulk_update_instances,
+                fields=["test_field_1", "test_field_2", "test_field_3", "test_field_4"],
+                batch_size=settings.UPDATE_RECORDS_BATCH_SIZE,
+                using_db=connection,
+            )
 
 
 async def process_data(data: list[dict]) -> None:
-    create_records_tasks = [
+    processing_data_tasks = [
         process_data_batch(
             data[batch_start: batch_start + settings.PROCESSING_BATCH_SIZE],
         )
         for batch_start in range(0, len(data), settings.PROCESSING_BATCH_SIZE)
     ]
 
-    await asyncio.gather(*create_records_tasks)
+    await asyncio.gather(*processing_data_tasks)
