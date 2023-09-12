@@ -1,9 +1,24 @@
 # DB settings
-DB_USERNAME = "admin"
-DB_PASSWORD = "admin"
-DB_HOST = "localhost"
-DB_PORT = 5432
-DB_NAME = "extyl_test_task_db"
+TORTOISE_ORM = {
+    "connections": {
+        "default":  {
+            "engine": "tortoise.backends.asyncpg",
+            "credentials": {
+                "host": "localhost",
+                "port": "5432",
+                "user": "admin",
+                "password": "admin",
+                "database": "extyl_test_task_db",
+            }
+        },
+    },
+    "apps": {
+        "core": {
+            "models": ["core.models", "aerich.models"],
+            "default_connection": "default",
+        },
+    },
+}
 
 # Data processing settings
 SLEEP_TIME_SECONDS = 3
