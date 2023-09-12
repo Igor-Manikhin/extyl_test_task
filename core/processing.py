@@ -6,6 +6,27 @@ from core import settings
 from core.models import TestModel
 
 
+async def bulk_create(batch: list[TestModel]) -> None:
+    async with in_transaction() as connection:
+        if batch:
+            await TestModel.bulk_create(
+                batch,
+                batch_size=settings.CREATE_RECORDS_BATCH_SIZE,
+                using_db=connection,
+            )
+
+
+async def bulk_update(batch: list[TestModel]) -> None:
+    async with in_transaction() as connection:
+        if batch:
+            await TestModel.bulk_update(
+                batch,
+                fields=["test_field_1", "test_field_2", "test_field_3", "test_field_4"],
+                batch_size=settings.UPDATE_RECORDS_BATCH_SIZE,
+                using_db=connection,
+            )
+
+
 async def process_data_batch(batch_data: list[dict]) -> (list[TestModel], list[TestModel]):
     bulk_update_instances = []
     bulk_create_instances = []
@@ -26,21 +47,7 @@ async def process_data_batch(batch_data: list[dict]) -> (list[TestModel], list[T
         if create_record_data := records_data.get(record_id):
             bulk_create_instances.append(TestModel(**create_record_data))
 
-    async with in_transaction() as connection:
-        if bulk_create_instances:
-            await TestModel.bulk_create(
-                bulk_create_instances,
-                batch_size=settings.CREATE_RECORDS_BATCH_SIZE,
-                using_db=connection,
-            )
-
-        if bulk_update_instances:
-            await TestModel.bulk_update(
-                bulk_update_instances,
-                fields=["test_field_1", "test_field_2", "test_field_3", "test_field_4"],
-                batch_size=settings.UPDATE_RECORDS_BATCH_SIZE,
-                using_db=connection,
-            )
+    await asyncio.gather(bulk_create(bulk_create_instances), bulk_update(bulk_update_instances))
 
 
 async def process_data(data: list[dict]) -> None:
