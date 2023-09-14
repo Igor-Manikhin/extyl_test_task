@@ -7,8 +7,8 @@ def create_random_string(length: int = 30) -> str:
     return "".join(random.choice(letters) for _ in range(length))
 
 
-def generate_json_list(list_size: int = 100) -> list[dict]:
-    random_ids = random.sample(range(1, list_size * 2), list_size)
+def generate_json_list(list_size: int = 100, offset: int = 0) -> list[dict]:
+    random_ids = random.sample(range(offset, list_size + offset + 1), list_size)
 
     return [
         {
