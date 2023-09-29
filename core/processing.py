@@ -1,5 +1,7 @@
 import asyncio
 
+from tortoise.transactions import in_transaction
+
 from core import settings
 from core.models import TestModel
 
@@ -8,10 +10,13 @@ class APIDataProcessor:
     def __init__(self, max_rate: int, concurrent_level: int = None):
         self.__max_rate = max_rate
         self._concurrent_level = concurrent_level
+        self.__existing_records_id_set = set()
         self.__create_queue = asyncio.Queue()
         self.__update_queue = asyncio.Queue()
         self.__semaphore = asyncio.Semaphore(concurrent_level or max_rate)
-        self.__scheduler_task = None
+        self.__create_scheduler_task = None
+        self.__update_scheduler_task = None
+        self.__event = asyncio.Event()
 
     async def __produce_data_batch(self, batch_data: list[dict]):
         bulk_update_instances = []
@@ -23,6 +28,7 @@ class APIDataProcessor:
         batch_data_id_set = set(records_data)
 
         non_existing_records_id = batch_data_id_set - existing_records_id_set
+        self.__existing_records_id_set.update(existing_records_id_set)
 
         for record in existing_records:
             if record_data := records_data.get(record.id):
@@ -49,21 +55,40 @@ class APIDataProcessor:
 
         await asyncio.gather(*processing_data_tasks)
 
-    async def update_worker(self):
-        while True:
-            bulk_update_instances = await self.__update_queue.get()
+    async def __recreate_table(self) -> None:
+        print("Recreating table!")
 
-            await TestModel.bulk_update(
-                bulk_update_instances,
-                fields=["test_field_1", "test_field_2", "test_field_3", "test_field_4"],
-                batch_size=settings.UPDATE_RECORDS_BATCH_SIZE,
+        async with in_transaction() as conn:
+            await conn.execute_query(
+                f"CREATE TABLE testmodel2 AS SELECT testmodel.* FROM testmodel LEFT JOIN"
+                f"(VALUES {','.join(f'({i})' for i in self.__existing_records_id_set)}) temp(temp_id)"
+                f"ON testmodel.id = temp.temp_id WHERE temp.temp_id IS NULL"
             )
-            print("Updated")
+            await conn.execute_query("DROP TABLE testmodel")
+            await conn.execute_query("ALTER TABLE testmodel2 RENAME TO testmodel")
 
-            self.__update_queue.task_done()
+        print("Recreating completed!")
 
-    async def __create_worker(self, worker_number: int):
-        bulk_create_instances = await self.__create_queue.get()
+    async def __update_scheduler(self):
+        while True:
+            await self.__event.wait()
+
+            if self.__update_queue.qsize():
+                await self.__recreate_table()
+
+            while self.__update_queue.qsize():
+                tasks = [
+                    asyncio.create_task(self.__worker(self.__update_queue, i))
+                    for i in range(self.__max_rate)
+                ]
+
+                await asyncio.gather(*tasks)
+
+            self.__existing_records_id_set.clear()
+            self.__event.clear()
+
+    async def __worker(self, queue: asyncio.Queue, worker_number: int):
+        bulk_create_instances = await queue.get()
 
         async with self.__semaphore:
             print(f"Worker {worker_number} len batch: {len(bulk_create_instances)}")
@@ -74,24 +99,24 @@ class APIDataProcessor:
             )
             print(f"Worker {worker_number}: Created")
 
-            self.__create_queue.task_done()
+            queue.task_done()
 
-    async def __scheduler(self):
-        asyncio.create_task(self.update_worker())
-
+    async def __create_scheduler(self):
         while True:
-            tasks = []
-
-            for i in range(self.__max_rate):
-                tasks.append(self.__create_worker(i))
+            tasks = [
+                asyncio.create_task(self.__worker(self.__create_queue, i))
+                for i in range(self.__max_rate)
+            ]
 
             await asyncio.gather(*tasks)
 
     async def join(self):
         await self.__create_queue.join()
         print("Create queue joined!")
+        self.__event.set()
         await self.__update_queue.join()
         print("Update queue joined!")
 
     def start(self):
-        self.__scheduler_task = asyncio.create_task(self.__scheduler())
+        self.__create_scheduler_task = asyncio.create_task(self.__create_scheduler())
+        self.__update_scheduler_task = asyncio.create_task(self.__update_scheduler())
